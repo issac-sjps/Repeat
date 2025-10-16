@@ -2,50 +2,77 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>中文語音辨識測試</title>
+<title>語音辨識循環（含提示音）</title>
 <style>
-body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-button { padding: 10px 20px; font-size: 16px; }
-#text { margin-top: 20px; font-size: 20px; }
+body {
+  font-family: 'Segoe UI', sans-serif;
+  text-align: center;
+  background: #0b1220;
+  color: white;
+  margin: 0;
+  padding-top: 50px;
+}
+button {
+  background: #6366f1;
+  color: white;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 8px;
+  font-size: 18px;
+  cursor: pointer;
+}
+#text {
+  margin-top: 30px;
+  font-size: 24px;
+}
 </style>
 </head>
 <body>
-<h2>🎤 中文語音辨識 + 自動朗讀</h2>
-<button id="startBtn">開始錄音</button>
+<h2>🎤 中文語音辨識 + 自動朗讀循環</h2>
+<button id="startBtn">開始</button>
 <div id="text"></div>
+
+<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
 
 <script>
 const startBtn = document.getElementById('startBtn');
 const textDiv = document.getElementById('text');
+const beep = document.getElementById('beep');
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
 
-recognition.lang = 'zh-TW'; // ✅ 中文辨識
+recognition.lang = 'zh-TW';       // ✅ 中文辨識
 recognition.continuous = false;
 recognition.interimResults = false;
+
+function playBeepAndStart() {
+  // 播放提示音後再開始錄音
+  beep.play();
+  beep.onended = () => recognition.start();
+}
 
 recognition.onresult = e => {
   const text = e.results[0][0].transcript;
   textDiv.textContent = '辨識結果：' + text;
 
-  // ✅ 自動朗讀結果
+  // ✅ 自動朗讀辨識文字
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = 'zh-TW';
   speechSynthesis.speak(utter);
 
-  // ✅ 朗讀完 1 秒後再重新收音
-  utter.onend = () => setTimeout(() => recognition.start(), 1000);
+  // ✅ 朗讀完 1 秒後再播放提示音並開始新一輪
+  utter.onend = () => setTimeout(playBeepAndStart, 1000);
 };
 
 recognition.onerror = e => {
   console.log('錯誤：', e.error);
-  setTimeout(() => recognition.start(), 1000);
+  setTimeout(playBeepAndStart, 1000);
 };
 
 startBtn.onclick = () => {
-  recognition.start();
   startBtn.disabled = true;
-  startBtn.textContent = '正在聽...';
+  startBtn.textContent = '正在進行中...';
+  playBeepAndStart();
 };
 </script>
 </body>
