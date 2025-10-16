@@ -45,143 +45,85 @@
 
       <div id="transcript" aria-live="polite">-- 等候輸入 --</div>
       <div style="height:8px"></div>
-      <div class="small">語言：
-        <select id="lang">
-          <option value="zh-TW" selected>中文（台灣） zh-TW</option>
-          <option value="zh-CN">中文（中國） zh-CN</option>
-          <option value="en-US">English (US)</option>
-          <option value="ja-JP">日本語</option>
-        </select>
-        &nbsp; • 語速：<input id="rate" type="range" min="0.6" max="1.8" step="0.1" value="1"> <span id="rateVal">1.0</span>
-      </div>
+      <div class="small">語速：<input id="rate" type="range" min="0.6" max="1.8" step="0.1" value="1"> <span id="rateVal">1.0</span></div>
 
       <footer>提示：第一次啟動會跳出麥克風權限視窗；若瀏覽器不支援辨識，請改用 Chrome/Edge。按「停止」可中斷循環。</footer>
     </div>
   </div>
 
   <script>
-    // 基本狀態與 DOM
     const btnStart = document.getElementById('btnStart');
     const btnStop = document.getElementById('btnStop');
     const btnOnce = document.getElementById('btnOnce');
     const status = document.getElementById('status');
     const dot = document.getElementById('dot');
     const transcriptEl = document.getElementById('transcript');
-    const langSel = document.getElementById('lang');
     const rateInput = document.getElementById('rate');
     const rateVal = document.getElementById('rateVal');
 
     let recognition = null;
-    let isRunning = false; // 自動循環開關
-    let inSpeaking = false; // 是否正在朗讀
+    let isRunning = false;
+    let inSpeaking = false;
 
-    // 更新語速顯示
     rateInput.addEventListener('input', ()=> rateVal.textContent = Number(rateInput.value).toFixed(1));
 
-    // 建立 SpeechRecognition（含廠商前綴）
-    function makeRecognition(lang){
+    function makeRecognition(){
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if(!SpeechRecognition) return null;
       const r = new SpeechRecognition();
-      r.lang = lang || 'zh-TW';
-      r.interimResults = false; // 只要最終結果
+      r.interimResults = false;
       r.maxAlternatives = 1;
-      r.continuous = false; // 單次辨識
+      r.continuous = false;
       return r;
     }
 
-    // 開始一次辨識
     function startRecognitionOnce(){
       if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
         alert('瀏覽器不支援 SpeechRecognition API。請改用 Chrome 或 Edge。');
         return Promise.reject('no-recognition');
       }
-
-      // 停止上一次的 recognition（若還在）
       if(recognition){ try{ recognition.abort(); }catch(e){} }
-      recognition = makeRecognition(langSel.value);
+      recognition = makeRecognition();
       return new Promise((resolve, reject)=>{
         let done = false;
-        recognition.onstart = ()=>{
-          status.textContent = '狀態：錄音中...';
-          dot.classList.remove('idle'); dot.classList.add('recording');
-        };
-        recognition.onerror = (e)=>{
-          console.warn('recognition error', e);
-          if(done) return;
-          done = true;
-          dot.classList.remove('recording'); dot.classList.add('idle');
-          status.textContent = '狀態：辨識錯誤，稍後重試';
-          reject(e);
-        };
-        recognition.onend = ()=>{
-          if(done) return;
-          // onend 會在沒有結果時呼叫，resolve 空字串
-          if(!done){ done=true; dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：等待中'; resolve(''); }
-        };
-        recognition.onresult = (event)=>{
-          if(done) return;
-          done = true;
-          const text = event.results[0][0].transcript.trim();
-          dot.classList.remove('recording'); dot.classList.add('idle');
-          status.textContent = '狀態：辨識完成';
-          resolve(text);
-        };
-        try{
-          recognition.start();
-        }catch(err){
-          reject(err);
-        }
+        recognition.onstart = ()=>{ status.textContent = '狀態：錄音中...'; dot.classList.remove('idle'); dot.classList.add('recording'); };
+        recognition.onerror = (e)=>{ if(done) return; done = true; dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：辨識錯誤'; reject(e); };
+        recognition.onend = ()=>{ if(done) return; done=true; dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：等待中'; resolve(''); };
+        recognition.onresult = (event)=>{ if(done) return; done = true; const text = event.results[0][0].transcript.trim(); dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：辨識完成'; resolve(text); };
+        try{ recognition.start(); }catch(err){ reject(err); }
       });
     }
 
-    // 用語音朗讀文字
     function speakText(text){
       return new Promise((resolve)=>{
         if(!text) { resolve(); return; }
         inSpeaking = true;
         const u = new SpeechSynthesisUtterance(text);
-        u.lang = langSel.value || 'zh-TW';
         u.rate = Number(rateInput.value) || 1.0;
-        // 選擇合適 voice（嘗試選語言相符的第一個）
-        const voices = speechSynthesis.getVoices();
-        if(voices && voices.length){
-          const matched = voices.find(v => v.lang && v.lang.startsWith(u.lang.split('-')[0]));
-          if(matched) u.voice = matched;
-        }
         u.onend = ()=>{ inSpeaking = false; resolve(); };
-        u.onerror = (e)=>{ console.warn('synthesis error', e); inSpeaking=false; resolve(); };
-        speechSynthesis.cancel(); // 先清掉其他語音
+        u.onerror = ()=>{ inSpeaking=false; resolve(); };
+        speechSynthesis.cancel();
         speechSynthesis.speak(u);
       });
     }
 
-    // 自動循環主體
     async function autoLoop(){
       isRunning = true;
       btnStart.disabled = true; btnStop.disabled = false; btnOnce.disabled = true;
-      status.textContent = '狀態：自動循環啟動中（按停止結束）';
+      status.textContent = '狀態：自動循環啟動中';
 
       while(isRunning){
         try{
-          // 啟動一次辨識
           const text = await startRecognitionOnce();
-          // 顯示結果
           if(text && text.trim()){
             transcriptEl.textContent = text;
-            // 在朗讀前確保 recognition 已停止（上面已停止）
             await speakText(text);
           } else {
-            // 若沒有辨識到內容，顯示提示並略過朗讀
             transcriptEl.textContent = '（未偵測到可辨識語音）';
-            // 可視需求決定是否朗讀提示：這裡不朗讀
           }
-          // 等待 1 秒後繼續下一次錄音
           if(!isRunning) break;
           await new Promise(r=>setTimeout(r, 1000));
         }catch(e){
-          console.error('autoLoop error', e);
-          // 出錯時，短暫等待再繼續
           if(!isRunning) break;
           await new Promise(r=>setTimeout(r, 1000));
         }
@@ -192,7 +134,6 @@
       dot.classList.remove('recording'); dot.classList.add('idle');
     }
 
-    // 停止自動循環
     function stopLoop(){
       isRunning = false;
       try{ if(recognition) recognition.abort(); }catch(e){}
@@ -200,21 +141,15 @@
       status.textContent = '狀態：停止中...';
     }
 
-    // 事件綁定
     btnStart.addEventListener('click', async ()=>{
-      // 先檢查權限：嘗試呼叫 getUserMedia 取得麥克風授權（避免某些瀏覽器必須先取得）
-      try{
-        await navigator.mediaDevices.getUserMedia({ audio:true });
-      }catch(e){ alert('請允許麥克風權限以使用辨識功能。'); return; }
+      try{ await navigator.mediaDevices.getUserMedia({ audio:true }); }catch(e){ alert('請允許麥克風權限以使用辨識功能。'); return; }
       autoLoop();
     });
 
     btnStop.addEventListener('click', ()=>{ stopLoop(); });
 
     btnOnce.addEventListener('click', async ()=>{
-      try{
-        await navigator.mediaDevices.getUserMedia({ audio:true });
-      }catch(e){ alert('請允許麥克風權限以使用辨識功能。'); return; }
+      try{ await navigator.mediaDevices.getUserMedia({ audio:true }); }catch(e){ alert('請允許麥克風權限以使用辨識功能。'); return; }
       status.textContent = '狀態：手動錄音中...';
       try{
         const text = await startRecognitionOnce();
@@ -224,21 +159,11 @@
         }else{
           transcriptEl.textContent = '（未偵測到可辨識語音）';
         }
-      }catch(e){ console.error(e); status.textContent = '狀態：手動辨識失敗' }
+      }catch(e){ status.textContent = '狀態：手動辨識失敗'; }
     });
 
-    // 初始按鈕狀態
     btnStop.disabled = true;
-
-    // 如果使用者改語言，取消現有的辨識以套新語言
-    langSel.addEventListener('change', ()=>{
-      if(recognition){ try{ recognition.abort(); }catch(e){} }
-    });
-
-    // 取得 voices 觸發載入（某些瀏覽器需主動呼叫一次以填充 voices 列表）
     if(window.speechSynthesis){ window.speechSynthesis.getVoices(); }
-
-    // 若想在關閉頁面前自動停止
     window.addEventListener('beforeunload', ()=>{ stopLoop(); });
   </script>
 </body>
