@@ -1,170 +1,52 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>自動錄音→顯示→朗讀→重新錄音（循環）</title>
-  <style>
-    :root{--bg:#0b1220;--card:#0f1724;--accent:#6ee7b7;--muted:#94a3b8;--good:#10b981;--bad:#ef4444}
-    body{font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Microsoft JhengHei", "Helvetica Neue", Arial; background:linear-gradient(180deg,#071028,#071a2a); color:#e6eef6; margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center}
-    .app{width:980px; max-width:96%; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px; padding:20px; box-shadow:0 6px 30px rgba(2,6,23,0.6)}
-    .row{display:flex; gap:12px}
-    h1{margin:0 0 6px 0; font-size:20px}
-    .controls{display:flex; gap:8px; align-items:center; margin-bottom:12px}
-    button{border:0; padding:10px 14px; border-radius:8px; font-weight:600; cursor:pointer}
-    .start{background:#10b981;color:#012;}
-    .stop{background:#ef4444;color:#fff}
-    .single{background:#ffd166;color:#021}
-    .status{font-size:14px; color:var(--muted)}
-    .card{background:var(--card); padding:14px; border-radius:10px; margin-top:12px}
-    #transcript{min-height:120px; padding:12px; border-radius:8px; background:rgba(255,255,255,0.02); font-size:18px; line-height:1.5}
-    .meta{display:flex; gap:16px; align-items:center; margin-top:8px}
-    .dot{width:12px; height:12px; border-radius:50%}
-    .recording{background:#ef4444}
-    .idle{background:#94a3b8}
-    footer{margin-top:14px; font-size:13px; color:var(--muted)}
-    .small{font-size:13px}
-  </style>
+<meta charset="UTF-8">
+<title>中文語音辨識測試</title>
+<style>
+body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+button { padding: 10px 20px; font-size: 16px; }
+#text { margin-top: 20px; font-size: 20px; }
+</style>
 </head>
 <body>
-  <div class="app">
-    <h1>自動錄音→顯示→朗讀→重新錄音（循環）</h1>
-    <div class="controls">
-      <button id="btnStart" class="start">開始自動循環</button>
-      <button id="btnStop" class="stop">停止</button>
-      <button id="btnOnce" class="single">手動錄一次（測試）</button>
-      <div style="flex:1"></div>
-      <div class="status" id="status">狀態：未啟動</div>
-    </div>
+<h2>🎤 中文語音辨識 + 自動朗讀</h2>
+<button id="startBtn">開始錄音</button>
+<div id="text"></div>
 
-    <div class="card">
-      <div class="meta">
-        <div class="dot idle" id="dot"></div>
-        <div class="small">麥克風權限、辨識與朗讀會使用瀏覽器內建API (SpeechRecognition + SpeechSynthesis)。</div>
-      </div>
+<script>
+const startBtn = document.getElementById('startBtn');
+const textDiv = document.getElementById('text');
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = new SpeechRecognition();
 
-      <div id="transcript" aria-live="polite">-- 等候輸入 --</div>
-      <div style="height:8px"></div>
-      <div class="small">語速：<input id="rate" type="range" min="0.6" max="1.8" step="0.1" value="1"> <span id="rateVal">1.0</span></div>
+recognition.lang = 'zh-TW'; // ✅ 中文辨識
+recognition.continuous = false;
+recognition.interimResults = false;
 
-      <footer>提示：第一次啟動會跳出麥克風權限視窗；若瀏覽器不支援辨識，請改用 Chrome/Edge。按「停止」可中斷循環。</footer>
-    </div>
-  </div>
+recognition.onresult = e => {
+  const text = e.results[0][0].transcript;
+  textDiv.textContent = '辨識結果：' + text;
 
-  <script>
-    const btnStart = document.getElementById('btnStart');
-    const btnStop = document.getElementById('btnStop');
-    const btnOnce = document.getElementById('btnOnce');
-    const status = document.getElementById('status');
-    const dot = document.getElementById('dot');
-    const transcriptEl = document.getElementById('transcript');
-    const rateInput = document.getElementById('rate');
-    const rateVal = document.getElementById('rateVal');
+  // ✅ 自動朗讀結果
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = 'zh-TW';
+  speechSynthesis.speak(utter);
 
-    let recognition = null;
-    let isRunning = false;
-    let inSpeaking = false;
+  // ✅ 朗讀完 1 秒後再重新收音
+  utter.onend = () => setTimeout(() => recognition.start(), 1000);
+};
 
-    rateInput.addEventListener('input', ()=> rateVal.textContent = Number(rateInput.value).toFixed(1));
+recognition.onerror = e => {
+  console.log('錯誤：', e.error);
+  setTimeout(() => recognition.start(), 1000);
+};
 
-    function makeRecognition(){
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if(!SpeechRecognition) return null;
-      const r = new SpeechRecognition();
-      r.interimResults = false;
-      r.maxAlternatives = 1;
-      r.continuous = false;
-      return r;
-    }
-
-    function startRecognitionOnce(){
-      if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
-        alert('瀏覽器不支援 SpeechRecognition API。請改用 Chrome 或 Edge。');
-        return Promise.reject('no-recognition');
-      }
-      if(recognition){ try{ recognition.abort(); }catch(e){} }
-      recognition = makeRecognition();
-      return new Promise((resolve, reject)=>{
-        let done = false;
-        recognition.onstart = ()=>{ status.textContent = '狀態：錄音中...'; dot.classList.remove('idle'); dot.classList.add('recording'); };
-        recognition.onerror = (e)=>{ if(done) return; done = true; dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：辨識錯誤'; reject(e); };
-        recognition.onend = ()=>{ if(done) return; done=true; dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：等待中'; resolve(''); };
-        recognition.onresult = (event)=>{ if(done) return; done = true; const text = event.results[0][0].transcript.trim(); dot.classList.remove('recording'); dot.classList.add('idle'); status.textContent = '狀態：辨識完成'; resolve(text); };
-        try{ recognition.start(); }catch(err){ reject(err); }
-      });
-    }
-
-    function speakText(text){
-      return new Promise((resolve)=>{
-        if(!text) { resolve(); return; }
-        inSpeaking = true;
-        const u = new SpeechSynthesisUtterance(text);
-        u.rate = Number(rateInput.value) || 1.0;
-        u.onend = ()=>{ inSpeaking = false; resolve(); };
-        u.onerror = ()=>{ inSpeaking=false; resolve(); };
-        speechSynthesis.cancel();
-        speechSynthesis.speak(u);
-      });
-    }
-
-    async function autoLoop(){
-      isRunning = true;
-      btnStart.disabled = true; btnStop.disabled = false; btnOnce.disabled = true;
-      status.textContent = '狀態：自動循環啟動中';
-
-      while(isRunning){
-        try{
-          const text = await startRecognitionOnce();
-          if(text && text.trim()){
-            transcriptEl.textContent = text;
-            await speakText(text);
-          } else {
-            transcriptEl.textContent = '（未偵測到可辨識語音）';
-          }
-          if(!isRunning) break;
-          await new Promise(r=>setTimeout(r, 1000));
-        }catch(e){
-          if(!isRunning) break;
-          await new Promise(r=>setTimeout(r, 1000));
-        }
-      }
-
-      status.textContent = '狀態：已停止';
-      btnStart.disabled = false; btnStop.disabled = true; btnOnce.disabled = false;
-      dot.classList.remove('recording'); dot.classList.add('idle');
-    }
-
-    function stopLoop(){
-      isRunning = false;
-      try{ if(recognition) recognition.abort(); }catch(e){}
-      speechSynthesis.cancel();
-      status.textContent = '狀態：停止中...';
-    }
-
-    btnStart.addEventListener('click', async ()=>{
-      try{ await navigator.mediaDevices.getUserMedia({ audio:true }); }catch(e){ alert('請允許麥克風權限以使用辨識功能。'); return; }
-      autoLoop();
-    });
-
-    btnStop.addEventListener('click', ()=>{ stopLoop(); });
-
-    btnOnce.addEventListener('click', async ()=>{
-      try{ await navigator.mediaDevices.getUserMedia({ audio:true }); }catch(e){ alert('請允許麥克風權限以使用辨識功能。'); return; }
-      status.textContent = '狀態：手動錄音中...';
-      try{
-        const text = await startRecognitionOnce();
-        if(text && text.trim()){
-          transcriptEl.textContent = text;
-          await speakText(text);
-        }else{
-          transcriptEl.textContent = '（未偵測到可辨識語音）';
-        }
-      }catch(e){ status.textContent = '狀態：手動辨識失敗'; }
-    });
-
-    btnStop.disabled = true;
-    if(window.speechSynthesis){ window.speechSynthesis.getVoices(); }
-    window.addEventListener('beforeunload', ()=>{ stopLoop(); });
-  </script>
+startBtn.onclick = () => {
+  recognition.start();
+  startBtn.disabled = true;
+  startBtn.textContent = '正在聽...';
+};
+</script>
 </body>
 </html>
