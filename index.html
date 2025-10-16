@@ -2,56 +2,22 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>語音辨識循環（含提示音與錄音提示）</title>
+<title>語音辨識 + 波形動畫</title>
 <style>
-body {
-  font-family: 'Segoe UI', sans-serif;
-  text-align: center;
-  background: #0b1220;
-  color: white;
-  margin: 0;
-  padding-top: 60px;
-}
-button {
-  background: #6366f1;
-  color: white;
-  border: none;
-  padding: 12px 25px;
-  border-radius: 8px;
-  font-size: 18px;
-  cursor: pointer;
-}
-#text {
-  margin-top: 30px;
-  font-size: 22px;
-  min-height: 40px;
-}
-#indicator {
-  width: 20px;
-  height: 20px;
-  margin: 20px auto;
-  border-radius: 50%;
-  background: gray;
-  box-shadow: 0 0 10px gray;
-  transition: background 0.3s;
-}
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.2; }
-}
-.recording {
-  background: #ef4444 !important;
-  box-shadow: 0 0 15px #ef4444;
-  animation: blink 1s infinite;
-}
+body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0b1220; color: white; margin: 0; padding-top: 60px; }
+button { background: #6366f1; color: white; border: none; padding: 12px 25px; border-radius: 8px; font-size: 18px; cursor: pointer; }
+#text { margin-top: 20px; font-size: 22px; min-height: 40px; }
+#indicator { width: 20px; height: 20px; margin: 20px auto; border-radius: 50%; background: gray; box-shadow: 0 0 10px gray; transition: background 0.3s; }
+canvas { display: block; margin: 20px auto; background: #031124; border-radius: 8px; }
+.recording { background: #ef4444 !important; box-shadow: 0 0 15px #ef4444; }
 </style>
 </head>
 <body>
-<h2>🎤 中文語音辨識 + 自動朗讀循環</h2>
+<h2>🎤 中文語音辨識 + 波形動畫 + 自動朗讀</h2>
 <button id="startBtn">開始</button>
 <div id="indicator"></div>
+<canvas id="waveCanvas" width="400" height="80"></canvas>
 <div id="text"></div>
-
 <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
 
 <script>
@@ -59,49 +25,124 @@ const startBtn = document.getElementById('startBtn');
 const textDiv = document.getElementById('text');
 const beep = document.getElementById('beep');
 const indicator = document.getElementById('indicator');
+const canvas = document.getElementById('waveCanvas');
+const ctx = canvas.getContext('2d');
+
+let silenceTimer = null;
+let audioCtx, analyser, dataArray, source;
+
+// Web Speech API
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
-
-recognition.lang = 'zh-TW'; // ✅ 中文辨識
+recognition.lang = 'zh-TW';
 recognition.continuous = false;
 recognition.interimResults = false;
 
-// 播放提示音後開始錄音
-function playBeepAndStart() {
-  indicator.classList.remove('recording'); // 關閉閃爍
+// 🔹 初始化語音系統 (iOS)
+async function initVoice() {
+  return new Promise(resolve=>{
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    u.onend = resolve;
+    speechSynthesis.speak(u);
+  });
+}
+
+// 🔹 開始錄音 + 波形
+async function startRecording() {
+  indicator.classList.add('recording');
   beep.play();
-  beep.onended = () => {
-    indicator.classList.add('recording'); // 開始閃爍，表示正在錄音
+  beep.onended = async () => {
+    indicator.classList.add('recording');
+
+    // 建立 AudioContext 監控音量波形
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    drawWave(); // 開始動畫
     recognition.start();
+
+    // 10 秒無聲重置
+    silenceTimer = setTimeout(()=>resetRecording(), 10000);
   };
 }
 
-recognition.onresult = e => {
+// 🔹 波形動畫
+function drawWave() {
+  if(!analyser) return;
+  requestAnimationFrame(drawWave);
+  analyser.getByteTimeDomainData(dataArray);
+  ctx.fillStyle = '#031124';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#4f46e5';
+  ctx.beginPath();
+  const sliceWidth = canvas.width / dataArray.length;
+  let x=0;
+  for(let i=0;i<dataArray.length;i++){
+    const v = dataArray[i]/128.0; // 0~2
+    const y = v * canvas.height/2;
+    if(i===0) ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
+    x += sliceWidth;
+  }
+  ctx.lineTo(canvas.width, canvas.height/2);
+  ctx.stroke();
+}
+
+// 🔹 重置錄音
+function resetRecording() {
+  console.log('10 秒無聲，重置錄音');
+  if(recognition) recognition.abort();
+  if(audioCtx) audioCtx.close();
+  indicator.classList.remove('recording');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  startRecording();
+}
+
+// 🔹 語音辨識事件
+recognition.onresult = e=>{
+  if(silenceTimer){ clearTimeout(silenceTimer); silenceTimer=null; }
   const text = e.results[0][0].transcript;
-  textDiv.textContent = '辨識結果：' + text;
-
-  // 停止閃爍
+  textDiv.textContent = '辨識結果：'+text;
   indicator.classList.remove('recording');
 
-  // ✅ 自動朗讀
+  // 語音朗讀
   const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = 'zh-TW';
+  utter.lang='zh-TW';
+  const voices = speechSynthesis.getVoices();
+  const zhVoice = voices.find(v=>v.lang.startsWith('zh')||v.name.includes('Mei')||v.name.includes('Ting'));
+  if(zhVoice) utter.voice=zhVoice;
   speechSynthesis.speak(utter);
-
-  // ✅ 朗讀完 1 秒後再播放提示音
-  utter.onend = () => setTimeout(playBeepAndStart, 1000);
+  utter.onend = ()=>setTimeout(startRecording,1000);
 };
 
-recognition.onerror = e => {
-  console.log('錯誤：', e.error);
+recognition.onerror = e=>{
+  console.log('辨識錯誤：', e.error);
+  if(silenceTimer){ clearTimeout(silenceTimer); silenceTimer=null; }
   indicator.classList.remove('recording');
-  setTimeout(playBeepAndStart, 1000);
+  setTimeout(startRecording,1000);
 };
 
-startBtn.onclick = () => {
+recognition.onend = ()=>{
+  if(silenceTimer){
+    clearTimeout(silenceTimer);
+    silenceTimer=null;
+    resetRecording();
+  }
+};
+
+startBtn.onclick = async ()=>{
   startBtn.disabled = true;
+  startBtn.textContent = '初始化中...';
+  await initVoice();
   startBtn.textContent = '運作中...';
-  playBeepAndStart();
+  startRecording();
 };
 </script>
 </body>
