@@ -2,14 +2,15 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>語音辨識 + 波形動畫</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中文語音辨識 + 波形動畫</title>
 <style>
-body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0b1220; color: white; margin: 0; padding-top: 60px; }
-button { background: #6366f1; color: white; border: none; padding: 12px 25px; border-radius: 8px; font-size: 18px; cursor: pointer; }
-#text { margin-top: 20px; font-size: 22px; min-height: 40px; }
-#indicator { width: 20px; height: 20px; margin: 20px auto; border-radius: 50%; background: gray; box-shadow: 0 0 10px gray; transition: background 0.3s; }
-canvas { display: block; margin: 20px auto; background: #031124; border-radius: 8px; }
-.recording { background: #ef4444 !important; box-shadow: 0 0 15px #ef4444; }
+body { font-family: 'Segoe UI', sans-serif; text-align: center; background: #0b1220; color: white; margin:0; padding-top:60px; }
+button { background: #6366f1; color:white; border:none; padding:12px 25px; border-radius:8px; font-size:18px; cursor:pointer; }
+#text { margin-top:20px; font-size:22px; min-height:40px; }
+#indicator { width:20px; height:20px; margin:20px auto; border-radius:50%; background:gray; box-shadow:0 0 10px gray; transition: background 0.3s; }
+canvas { display:block; margin:20px auto; background:#031124; border-radius:8px; }
+.recording { background:#ef4444 !important; box-shadow:0 0 15px #ef4444; }
 </style>
 </head>
 <body>
@@ -38,7 +39,7 @@ recognition.lang = 'zh-TW';
 recognition.continuous = false;
 recognition.interimResults = false;
 
-// 🔹 初始化語音系統 (iOS)
+// 🔹 初始化語音系統 (iOS 必須使用者互動)
 async function initVoice() {
   return new Promise(resolve=>{
     const u = new SpeechSynthesisUtterance('');
@@ -55,20 +56,24 @@ async function startRecording() {
   beep.onended = async () => {
     indicator.classList.add('recording');
 
-    // 建立 AudioContext 監控音量波形
-    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-    source = audioCtx.createMediaStreamSource(stream);
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-    drawWave(); // 開始動畫
-    recognition.start();
+      drawWave(); // 開始動畫
+      recognition.start();
 
-    // 10 秒無聲重置
-    silenceTimer = setTimeout(()=>resetRecording(), 10000);
+      // 10 秒無聲監控
+      silenceTimer = setTimeout(()=>resetRecording(),10000);
+    } catch(err) {
+      console.error('麥克風取得失敗', err);
+      indicator.classList.remove('recording');
+    }
   };
 }
 
@@ -83,9 +88,9 @@ function drawWave() {
   ctx.strokeStyle = '#4f46e5';
   ctx.beginPath();
   const sliceWidth = canvas.width / dataArray.length;
-  let x=0;
+  let x = 0;
   for(let i=0;i<dataArray.length;i++){
-    const v = dataArray[i]/128.0; // 0~2
+    const v = dataArray[i]/128.0;
     const y = v * canvas.height/2;
     if(i===0) ctx.moveTo(x,y);
     else ctx.lineTo(x,y);
@@ -93,11 +98,16 @@ function drawWave() {
   }
   ctx.lineTo(canvas.width, canvas.height/2);
   ctx.stroke();
+
+  // 紅點同步閃爍
+  const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
+  const brightness = Math.min(1, avg/128);
+  indicator.style.background = `rgba(239,68,68,${0.3+0.7*brightness})`;
 }
 
 // 🔹 重置錄音
 function resetRecording() {
-  console.log('10 秒無聲，重置錄音');
+  console.log('10 秒無聲，自動重置錄音');
   if(recognition) recognition.abort();
   if(audioCtx) audioCtx.close();
   indicator.classList.remove('recording');
@@ -106,7 +116,7 @@ function resetRecording() {
 }
 
 // 🔹 語音辨識事件
-recognition.onresult = e=>{
+recognition.onresult = e => {
   if(silenceTimer){ clearTimeout(silenceTimer); silenceTimer=null; }
   const text = e.results[0][0].transcript;
   textDiv.textContent = '辨識結果：'+text;
@@ -114,22 +124,23 @@ recognition.onresult = e=>{
 
   // 語音朗讀
   const utter = new SpeechSynthesisUtterance(text);
-  utter.lang='zh-TW';
+  utter.lang = 'zh-TW';
   const voices = speechSynthesis.getVoices();
   const zhVoice = voices.find(v=>v.lang.startsWith('zh')||v.name.includes('Mei')||v.name.includes('Ting'));
-  if(zhVoice) utter.voice=zhVoice;
+  if(zhVoice) utter.voice = zhVoice;
+  speechSynthesis.cancel();
   speechSynthesis.speak(utter);
   utter.onend = ()=>setTimeout(startRecording,1000);
 };
 
-recognition.onerror = e=>{
+recognition.onerror = e => {
   console.log('辨識錯誤：', e.error);
   if(silenceTimer){ clearTimeout(silenceTimer); silenceTimer=null; }
   indicator.classList.remove('recording');
   setTimeout(startRecording,1000);
 };
 
-recognition.onend = ()=>{
+recognition.onend = () => {
   if(silenceTimer){
     clearTimeout(silenceTimer);
     silenceTimer=null;
@@ -137,10 +148,11 @@ recognition.onend = ()=>{
   }
 };
 
-startBtn.onclick = async ()=>{
+// 🔹 使用者點擊啟動
+startBtn.onclick = async () => {
   startBtn.disabled = true;
   startBtn.textContent = '初始化中...';
-  await initVoice();
+  await initVoice(); // 喚醒語音合成
   startBtn.textContent = '運作中...';
   startRecording();
 };
