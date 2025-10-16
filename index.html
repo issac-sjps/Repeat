@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>語音辨識循環（含提示音）</title>
+<title>語音辨識循環（含提示音與錄音提示）</title>
 <style>
 body {
   font-family: 'Segoe UI', sans-serif;
@@ -10,7 +10,7 @@ body {
   background: #0b1220;
   color: white;
   margin: 0;
-  padding-top: 50px;
+  padding-top: 60px;
 }
 button {
   background: #6366f1;
@@ -23,13 +23,33 @@ button {
 }
 #text {
   margin-top: 30px;
-  font-size: 24px;
+  font-size: 22px;
+  min-height: 40px;
+}
+#indicator {
+  width: 20px;
+  height: 20px;
+  margin: 20px auto;
+  border-radius: 50%;
+  background: gray;
+  box-shadow: 0 0 10px gray;
+  transition: background 0.3s;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+.recording {
+  background: #ef4444 !important;
+  box-shadow: 0 0 15px #ef4444;
+  animation: blink 1s infinite;
 }
 </style>
 </head>
 <body>
 <h2>🎤 中文語音辨識 + 自動朗讀循環</h2>
 <button id="startBtn">開始</button>
+<div id="indicator"></div>
 <div id="text"></div>
 
 <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
@@ -38,40 +58,49 @@ button {
 const startBtn = document.getElementById('startBtn');
 const textDiv = document.getElementById('text');
 const beep = document.getElementById('beep');
+const indicator = document.getElementById('indicator');
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
 
-recognition.lang = 'zh-TW';       // ✅ 中文辨識
+recognition.lang = 'zh-TW'; // ✅ 中文辨識
 recognition.continuous = false;
 recognition.interimResults = false;
 
+// 播放提示音後開始錄音
 function playBeepAndStart() {
-  // 播放提示音後再開始錄音
+  indicator.classList.remove('recording'); // 關閉閃爍
   beep.play();
-  beep.onended = () => recognition.start();
+  beep.onended = () => {
+    indicator.classList.add('recording'); // 開始閃爍，表示正在錄音
+    recognition.start();
+  };
 }
 
 recognition.onresult = e => {
   const text = e.results[0][0].transcript;
   textDiv.textContent = '辨識結果：' + text;
 
-  // ✅ 自動朗讀辨識文字
+  // 停止閃爍
+  indicator.classList.remove('recording');
+
+  // ✅ 自動朗讀
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = 'zh-TW';
   speechSynthesis.speak(utter);
 
-  // ✅ 朗讀完 1 秒後再播放提示音並開始新一輪
+  // ✅ 朗讀完 1 秒後再播放提示音
   utter.onend = () => setTimeout(playBeepAndStart, 1000);
 };
 
 recognition.onerror = e => {
   console.log('錯誤：', e.error);
+  indicator.classList.remove('recording');
   setTimeout(playBeepAndStart, 1000);
 };
 
 startBtn.onclick = () => {
   startBtn.disabled = true;
-  startBtn.textContent = '正在進行中...';
+  startBtn.textContent = '運作中...';
   playBeepAndStart();
 };
 </script>
